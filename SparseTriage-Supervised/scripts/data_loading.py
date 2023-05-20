@@ -145,13 +145,14 @@ def get_train_val_test_data(expert, binary=False, model='efficientnet_b1', valid
         - test_gt_data: Ground-truth label for the test data (optional)
         - valid_gt_data: Ground-truth label for the val data (optional)
     """
-    if dataset == 'cifar100':
-        return get_cifar100_data(expert, binary, model, valid, L, gt_targets, seed)
-    elif dataset == 'nih':
-        return get_nih_data(expert=expert, valid=valid, L=L, gt_targets=gt_targets, seed=seed, binary=binary)
-    else:
-        print(f'Dataset {dataset} not defined')
-        sys.exit()
+    # if dataset == 'cifar100':
+    #     return get_cifar100_data(expert, binary, model, valid, L, gt_targets, seed)
+    # elif dataset == 'nih':
+    #     return get_nih_data(expert=expert, valid=valid, L=L, gt_targets=gt_targets, seed=seed, binary=binary)
+    # else:
+    #     print(f'Dataset {dataset} not defined')
+    #     sys.exit()
+    return get_nih_data(expert=expert, valid=valid, L=L, gt_targets=gt_targets, seed=seed, binary=binary)
 
 
 def get_cifar100_data(expert, binary=False, model='efficientnet_b1', valid=True, L=None, gt_targets=False, seed=123):
@@ -268,7 +269,7 @@ def get_nih_data(expert, seed=123, valid=True, L=None, gt_targets=True, binary=T
         target = 'Airspace_Opacity'
 
     individual_labels = pd.read_csv("data/nih_labels.csv")
-    img_dir = os.getcwd()[:-len('Embedding-Supervised')]+'nih_images/'
+    img_dir = os.getcwd()[:-len('SparseTriage-Supervised')]+'nih_images/'
     if expert is not None:
         labeler_id = expert.labeler_id
         data = individual_labels[individual_labels['Reader ID'] == labeler_id]
@@ -284,7 +285,7 @@ def get_nih_data(expert, seed=123, valid=True, L=None, gt_targets=True, binary=T
 
     # split train and test data
     train_index, test_index = generate_patient_train_test_split(data, 12345)
-    x_train_data, x_test_data = x_data[train_index], x_data[test_index]
+    x_train_data, x_test_data = x_data[train_index], x_data[test_index] # x
     y_gt_train_data, y_gt_test_data = y_gt_data[train_index], y_gt_data[test_index] # y
     y_ex_train_data, y_ex_test_data = y_ex_data[train_index], y_ex_data[test_index] # h
 
@@ -296,7 +297,7 @@ def get_nih_data(expert, seed=123, valid=True, L=None, gt_targets=True, binary=T
             y_gt_train_data, y_gt_val_data = y_gt_train_data[train_index], y_gt_train_data[val_index]
             y_ex_train_data, y_ex_val_data = y_ex_train_data[train_index], y_ex_train_data[val_index]
 
-    if L is not None:
+    if L is not None: # 有标签，则划分训练验证集
         # generate labeled subset
         sss = StratifiedShuffleSplit(n_splits=1, test_size=L / len(x_train_data), random_state=seed)
         for _, train_index in sss.split(x_train_data, y_gt_train_data):

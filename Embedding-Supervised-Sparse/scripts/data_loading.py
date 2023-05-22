@@ -269,6 +269,7 @@ def get_nih_data(expert, seed=123, valid=True, L=None, gt_targets=True, binary=T
         target = 'Airspace_Opacity'
 
     individual_labels = pd.read_csv("data/nih_labels.csv")
+    individual_labels = pd.read_csv("data/nih_labels_mini.csv")
     img_dir = os.getcwd()[:-len('Embedding-Supervised-Sparse')]+'nih_images/'
     if expert is not None:
         labeler_id = expert.labeler_id
@@ -310,10 +311,10 @@ def get_nih_data(expert, seed=123, valid=True, L=None, gt_targets=True, binary=T
         y_gt_train_subset_data = y_gt_train_data
         y_ex_train_subset_data = y_ex_train_data
 
-    train_data = NIH_Dataset({'img': x_train_subset_data, 'label': y_ex_train_subset_data}, img_dir)
-    test_data = NIH_Dataset({'img': x_test_data, 'label': y_ex_test_data}, img_dir)
+    train_data = NIH_Dataset({'img': x_train_subset_data, 'label': y_ex_train_subset_data, 'gt': y_gt_train_subset_data}, img_dir)
+    test_data = NIH_Dataset({'img': x_test_data, 'label': y_ex_test_data, 'gt': y_gt_test_data}, img_dir)
     if valid:
-        val_data = NIH_Dataset({'img': x_val_data, 'label': y_ex_val_data}, img_dir)
+        val_data = NIH_Dataset({'img': x_val_data, 'label': y_ex_val_data, 'gt': y_gt_val_data}, img_dir)
 
     if valid and gt_targets:
         return train_data, test_data, val_data, y_gt_train_subset_data, y_gt_test_data, y_gt_val_data
@@ -408,6 +409,7 @@ class NIH_Dataset(Dataset):
     def __init__(self, data: pd.DataFrame, img_dir) -> None:
         self.image_ids = data['img']
         self.targets = data['label']
+        self.gt = data['gt']
         # get active device
         self.device = get_device()
 
@@ -434,9 +436,9 @@ class NIH_Dataset(Dataset):
             - target: Target
             - filename: Image id
         """
-        filename, target = self.image_ids[index], self.targets[index]
+        filename, target, gt = self.image_ids[index], self.targets[index], self.gt[index]
         img = self.images[index]
-        return img, target, filename
+        return img, target, gt, filename
 
     def __len__(self) -> int:
         """Get length of NIH dataset

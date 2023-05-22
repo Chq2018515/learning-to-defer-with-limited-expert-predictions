@@ -1,0 +1,16 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Current File",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "cwd": "${fileDirname}",
+            "args": ["--dataset", "nih", "--model", "resnet18", "--num_classes", "2", "--lr", "0.001"],
+            "env": {"PYTHONPATH": "${workspaceFolder}/Embedding-Supervised-Sparse:${env:PYTHONPATH}"}
+        }
+    ]
+}

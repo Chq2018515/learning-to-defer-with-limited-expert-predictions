@@ -87,12 +87,15 @@ class EmbeddingModel:
         :return: loss
         """
         self.model.train()
-        for ii, (data, target, index) in enumerate(self.train_loader):
+        for ii, (data, target, gt, index) in enumerate(self.train_loader):
             data = data.to(self.device)
             target = target.to(self.device)
-
+            gt = gt.to(self.device)
+            emb = None
             target = target.long()
-            _, pred = self.model(data)
+            if self.extra_emb != None:
+                emb = self.get_embeddings(data)
+            _, pred = self.model(data, emb)
 
             loss = self.loss_function(pred, target)
 
@@ -108,17 +111,11 @@ class EmbeddingModel:
             self.writer.add_scalar('LR/lr', self.optimizer.param_groups[0]["lr"], self.global_step)
         return loss
 
-    def get_embeddings(self):
+    def get_embeddings(self, x):
         self.model.eval()
-        embeddings = []
-        for ii, (data, target, _) in enumerate(self.train_loader):
-            data = data.to(self.device)
-            target = target.to(self.device)
-            with torch.no_grad():
-                embs, _ = self.model(data)
-            for emb in embs:
-                embeddings.append(emb.item())
-        return embeddings
+        with torch.no_grad():
+            embs, _ = self.model(x)
+        return embs
 
     def get_validation_accuracy(self, epoch, return_acc=False, print_acc=True):
         """Get validation accuracy
@@ -131,20 +128,28 @@ class EmbeddingModel:
         predict = []
         targets = []
         self.model.eval()
-        for i, (data, target, indices) in enumerate(self.val_loader):
+        for i, (data, target, gt, indices) in enumerate(self.val_loader):
             data = data.to(self.device)
             target = target.to(self.device)
+            gt = gt.to(self.device)
+            emb = None
+            if self.extra_emb != None:
+                emb = self.get_embeddings(data)
             # get model artificial_expert_labels
             with torch.no_grad():
-                _, output = self.model(data)
+                _, output = self.model(data, emb)
 
             # get predicted classes from model output
             predicted_class = torch.argmax(output, dim=1).cpu().numpy()
 
             for p in predicted_class:
                 predict.append(p)
-            for t in target:
-                targets.append(t.item())
+            if self.extra_emb == None:
+                for t in target:
+                    targets.append(t.item())
+            else:
+                for t in gt:
+                    targets.append(t.item())
 
         # calculate accuracy score
         acc = accuracy_score(targets, predict)
@@ -166,21 +171,29 @@ class EmbeddingModel:
         predict = []
         targets = []
         self.model.eval()
-        for i, (data, target, indices) in enumerate(self.test_loader):
+        for i, (data, target, gt, _) in enumerate(self.test_loader):
             data = data.to(self.device)
             target = target.to(self.device)
+            gt = gt.to(self.device)
+            emb = None
+            if self.extra_emb != None:
+                emb = self.get_embeddings(data)
             # get model artificial_expert_labels
             with torch.no_grad():
-                _, output = self.model(data)
+                _, output = self.model(data, emb)
 
             # get predicted classes from model output
             m = nn.Softmax(dim=1)
             predicted_class = torch.argmax(output, dim=1).cpu().numpy()
             for p in predicted_class:
                 predict.append(p)
-            for t in target:
-                targets.append(t.item())
-
+            if self.extra_emb == None:
+                for t in target:
+                    targets.append(t.item())
+            else:
+                for t in gt:
+                    targets.append(t.item())  
+   
         # calculate accuracy score
         acc = accuracy_score(targets, predict)
 
@@ -272,22 +285,13 @@ class Resnet(torch.nn.Module):
         except FileNotFoundError:
             print('load Resnet-18 pretrained on ImageNet')
 
-        # for param in self.resnet.parameters():
-        #    param.requires_grad = False
-
-        # self.training = False
-        if extra_emb != None: # 需要结合embedding
-            self.embedding = nn.Embedding(num_embeddings=1, embedding_dim=1, padding_idx=0)
-            
         self.resnet.fc = nn.Linear(self.resnet.fc.in_features, num_classes)
-
-        # print(self.resnet)
 
     def load_my_state_dict(self, state_dict, strict=True):
         pretrained_dict = {k: v for k, v in state_dict.items() if 'fc' not in k}
         self.resnet.load_state_dict(pretrained_dict, strict=strict)
 
-    def forward(self, x, return_features=False):
+    def forward(self, x, emb=None):
         x = self.resnet.conv1(x)
         x = self.resnet.bn1(x)
         x = self.resnet.relu(x)
@@ -298,14 +302,24 @@ class Resnet(torch.nn.Module):
         x = self.resnet.layer4(x)
         x = self.resnet.avgpool(x)
         x = torch.flatten(x, 1)
-        # features = torch.flatten(x, 1)
-        features = torch.concat((torch.flatten(x, 1), torch.flatten(self.extra_emb, 1)))
-        # if return_features:
-        #     return features
-        # else:
-        #     out = self.resnet.fc(features)
-        #     out = nn.Softmax(dim=1)(out)
-        #     return out
+        if emb == None:
+            features = torch.flatten(x, 1)
+        else:
+            # features = torch.add((torch.flatten(x, 1), torch.flatten(emb, 1)))
+            features = torch.flatten(x, 1) + torch.flatten(emb, 1)
         out = self.resnet.fc(features)
         out = nn.Softmax(dim=1)(out)
         return features, out
+
+def main():
+    data = (
+        torch.tensor((3, 224, 224), dtype=torch.float32, device='cpu'),
+        1,
+        1,
+        '00018921_051.png'
+    )
+    
+    
+if __name__ == '__main__':
+    main()
+    

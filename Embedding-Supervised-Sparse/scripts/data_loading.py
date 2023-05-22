@@ -269,7 +269,7 @@ def get_nih_data(expert, seed=123, valid=True, L=None, gt_targets=True, binary=T
         target = 'Airspace_Opacity'
 
     individual_labels = pd.read_csv("data/nih_labels.csv")
-    img_dir = os.getcwd()[:-len('SparseTriage-Supervised')]+'nih_images/'
+    img_dir = os.getcwd()[:-len('Embedding-Supervised-Sparse')]+'nih_images/'
     if expert is not None:
         labeler_id = expert.labeler_id
         data = individual_labels[individual_labels['Reader ID'] == labeler_id]

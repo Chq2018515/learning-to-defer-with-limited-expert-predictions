@@ -20,29 +20,51 @@ def main(argv):
         'num_classes': FLAGS.num_classes,
         'batch': FLAGS.batch,
         'lr': FLAGS.lr,
+        'embs': None # 'z'或'g'，用于区分两个阶段
     }
     # get training directory
     train_dir = get_train_dir(wkdir, args, 'emb_net')
     # initialize summary writer for tensorboard
     writer = SummaryWriter(train_dir + 'logs/')
     # initialize base model
-    emb_model = EmbeddingModel(args, wkdir, writer)
+    args['embs'] = 'z'
+    z_emb_model = EmbeddingModel(args, wkdir, writer)
     # try to load previous training runs
-    start_epoch = emb_model.load_from_checkpoint(mode='latest')
-    valid_acc = emb_model.get_test_accuracy(return_acc=True)
+    start_epoch = z_emb_model.load_from_checkpoint(mode='latest')
+    valid_acc = z_emb_model.get_test_accuracy(return_acc=True)
     # train model
     for epoch in range(start_epoch, 200):
         # train one epoch
-        loss = emb_model.train_one_epoch(epoch)
+        loss = z_emb_model.train_one_epoch(epoch)
         # get validation accuracy
-        valid_acc = emb_model.get_test_accuracy(return_acc=True)
+        valid_acc = z_emb_model.get_test_accuracy(return_acc=True)
         print(f'loss: {loss}')
         # save logs to json
         save_to_logs(train_dir, valid_acc, loss.item())
         # save model to checkpoint
-        emb_model.save_to_checkpoint(epoch, loss, valid_acc)
+        z_emb_model.save_to_checkpoint(epoch, loss, valid_acc)
     # get test accuracy
-    emb_model.get_test_accuracy()
+    z_emb_model.get_test_accuracy()
+    
+    z_emb = z_emb_model.get_embeddings()
+    args['embs'] = 'g'
+    g_emb_model = EmbeddingModel(args, wkdir, writer, z_emb)
+    start_epoch = g_emb_model.load_from_checkpoint(mode='latest')
+    valid_acc = g_emb_model.get_test_accuracy(return_acc=True)
+    # train model
+    for epoch in range(start_epoch, 200):
+        # train one epoch
+        loss = g_emb_model.train_one_epoch(epoch)
+        # get validation accuracy
+        valid_acc = g_emb_model.get_test_accuracy(return_acc=True)
+        print(f'loss: {loss}')
+        # save logs to json
+        save_to_logs(train_dir, valid_acc, loss.item())
+        # save model to checkpoint
+        g_emb_model.save_to_checkpoint(epoch, loss, valid_acc)
+    # get test accuracy
+    g_emb_model.get_test_accuracy()
+    
 
 
 if __name__ == '__main__':

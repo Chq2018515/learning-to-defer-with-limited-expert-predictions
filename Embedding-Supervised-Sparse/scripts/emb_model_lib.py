@@ -26,6 +26,7 @@ class EmbeddingModel:
     :ivar global_step: Global setp
     :ivar args: Training arguments
     :ivar writer: Tensorboard writer
+    :ivar extra_emb: e; 用于(x, e)-->g-->y
     :ivar device: Active device
     :ivar train_dir: Training directory of the embedding model
     :ivar model: Embedding model
@@ -39,10 +40,11 @@ class EmbeddingModel:
     :ivar test_loader: Test dataloader
     :ivar val_loader: Validation dataloader
     """
-    def __init__(self, args, wkdir, writer):
+    def __init__(self, args, wkdir, writer, extra_emb=None):
         self.global_step = 0
         self.args = args
         self.writer = writer
+        self.extra_emb = extra_emb
         self.device = prep.get_device()
         self.train_dir = get_train_dir(wkdir, args, 'emb_net')
         self.model = self.get_model()
@@ -65,12 +67,13 @@ class EmbeddingModel:
         :return: model
         """
         # load model
-        if self.args['model'] == 'wideresnet':
-            model = WideResNet(28, 10, 0.2, self.args['num_classes'])
-        elif self.args['model'] == 'resnet18':
-            model = Resnet(self.args['num_classes'])
-        else:
-            model = timm.create_model(self.args['model'], pretrained=True, num_classes=self.args['num_classes'])
+        # if self.args['model'] == 'wideresnet':
+        #     model = WideResNet(28, 10, 0.2, self.args['num_classes'])
+        # elif self.args['model'] == 'resnet18':
+        #     model = Resnet(self.args['num_classes'])
+        # else:
+        #     model = timm.create_model(self.args['model'], pretrained=True, num_classes=self.args['num_classes'])
+        model = Resnet(self.args['num_classes'], self.extra_emb)
         print('Loaded Model', self.args['model'])
         # load model to device
         model = prep.to_device(model, self.device)
@@ -105,6 +108,18 @@ class EmbeddingModel:
             self.writer.add_scalar('LR/lr', self.optimizer.param_groups[0]["lr"], self.global_step)
         return loss
 
+    def get_embeddings(self):
+        self.model.eval()
+        embeddings = []
+        for ii, (data, target, _) in enumerate(self.train_loader):
+            data = data.to(self.device)
+            target = target.to(self.device)
+            with torch.no_grad():
+                embs, _ = self.model(data)
+            for emb in embs:
+                embeddings.append(emb.item())
+        return embeddings
+
     def get_validation_accuracy(self, epoch, return_acc=False, print_acc=True):
         """Get validation accuracy
 
@@ -121,7 +136,7 @@ class EmbeddingModel:
             target = target.to(self.device)
             # get model artificial_expert_labels
             with torch.no_grad():
-                output = self.model(data)
+                _, output = self.model(data)
 
             # get predicted classes from model output
             predicted_class = torch.argmax(output, dim=1).cpu().numpy()
@@ -241,17 +256,18 @@ class EmbeddingModel:
 
 
 class Resnet(torch.nn.Module):
-    def __init__(self, num_classes):
+    def __init__(self, num_classes, extra_emb=None):
         super().__init__()
         self.num_classes = num_classes
         self.resnet = resnet18(pretrained=True)
+        self.extra_emb = extra_emb
         # del self.resnet.fc
 
         try:
             print('load Resnet-18 checkpoint')
             self.load_my_state_dict(
                 torch.load(
-                    os.getcwd()[:-len('Embedding-Supervised')] + "/nih_images/checkpoint.pretrain"),
+                    os.getcwd()[:-len('Embedding-Supervised-Sparse')] + "/nih_images/checkpoint.pretrain"),
                 strict=False)
         except FileNotFoundError:
             print('load Resnet-18 pretrained on ImageNet')
@@ -260,6 +276,9 @@ class Resnet(torch.nn.Module):
         #    param.requires_grad = False
 
         # self.training = False
+        if extra_emb != None: # 需要结合embedding
+            self.embedding = nn.Embedding(num_embeddings=1, embedding_dim=1, padding_idx=0)
+            
         self.resnet.fc = nn.Linear(self.resnet.fc.in_features, num_classes)
 
         # print(self.resnet)
@@ -279,7 +298,8 @@ class Resnet(torch.nn.Module):
         x = self.resnet.layer4(x)
         x = self.resnet.avgpool(x)
         x = torch.flatten(x, 1)
-        features = torch.flatten(x, 1)
+        # features = torch.flatten(x, 1)
+        features = torch.concat((torch.flatten(x, 1), torch.flatten(self.extra_emb, 1)))
         # if return_features:
         #     return features
         # else:

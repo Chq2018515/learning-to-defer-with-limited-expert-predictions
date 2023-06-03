@@ -26,7 +26,7 @@ class EmbeddingModel:
     :ivar global_step: Global setp
     :ivar args: Training arguments
     :ivar writer: Tensorboard writer
-    :ivar extra_emb: e; 用于(x, e)-->g-->y
+    :ivar expert_pred: e; 用于(x, e)-->g-->y
     :ivar device: Active device
     :ivar train_dir: Training directory of the embedding model
     :ivar model: Embedding model
@@ -40,11 +40,11 @@ class EmbeddingModel:
     :ivar test_loader: Test dataloader
     :ivar val_loader: Validation dataloader
     """
-    def __init__(self, args, wkdir, writer, extra_emb=None):
+    def __init__(self, args, wkdir, writer, expert_pred=False):
         self.global_step = 0
         self.args = args
         self.writer = writer
-        self.extra_emb = extra_emb
+        self.expert_pred = expert_pred
         self.device = prep.get_device()
         self.train_dir = get_train_dir(wkdir, args, 'emb_net')
         self.model = self.get_model()
@@ -73,7 +73,7 @@ class EmbeddingModel:
         #     model = Resnet(self.args['num_classes'])
         # else:
         #     model = timm.create_model(self.args['model'], pretrained=True, num_classes=self.args['num_classes'])
-        model = Resnet(self.args['num_classes'], self.extra_emb)
+        model = Resnet(self.args['num_classes'])
         print('Loaded Model', self.args['model'])
         # load model to device
         model = prep.to_device(model, self.device)
@@ -91,13 +91,13 @@ class EmbeddingModel:
             data = data.to(self.device)
             target = target.to(self.device)
             gt = gt.to(self.device)
-            emb = None
             target = target.long()
-            if self.extra_emb != None:
-                emb = self.get_embeddings(data)
-            _, pred = self.model(data, emb)
-
-            loss = self.loss_function(pred, target)
+            if self.expert_pred:
+                _, pred = self.model(data, target)
+                loss = self.loss_function(pred, gt) # 和 y 比较
+            else:
+                _, pred = self.model(data)
+                loss = self.loss_function(pred, target) # 和 e 比较
 
             self.optimizer.zero_grad()
             loss.backward()
@@ -132,19 +132,19 @@ class EmbeddingModel:
             data = data.to(self.device)
             target = target.to(self.device)
             gt = gt.to(self.device)
-            emb = None
-            if self.extra_emb != None:
-                emb = self.get_embeddings(data)
+            ex = None
+            if self.expert_pred != None:
+                ex = self.get_embeddings(data)
             # get model artificial_expert_labels
             with torch.no_grad():
-                _, output = self.model(data, emb)
+                _, output = self.model(data, ex)
 
             # get predicted classes from model output
             predicted_class = torch.argmax(output, dim=1).cpu().numpy()
 
             for p in predicted_class:
                 predict.append(p)
-            if self.extra_emb == None:
+            if self.expert_pred == None:
                 for t in target:
                     targets.append(t.item())
             else:
@@ -175,23 +175,22 @@ class EmbeddingModel:
             data = data.to(self.device)
             target = target.to(self.device)
             gt = gt.to(self.device)
-            emb = None
-            if self.extra_emb != None:
-                emb = self.get_embeddings(data)
-            # get model artificial_expert_labels
             with torch.no_grad():
-                _, output = self.model(data, emb)
+                if self.expert_pred:
+                    _, output = self.model(data, target)
+                else:
+                    _, output = self.model(data)
 
             # get predicted classes from model output
             m = nn.Softmax(dim=1)
             predicted_class = torch.argmax(output, dim=1).cpu().numpy()
             for p in predicted_class:
                 predict.append(p)
-            if self.extra_emb == None:
-                for t in target:
+            if self.expert_pred:
+                for t in gt:
                     targets.append(t.item())
             else:
-                for t in gt:
+                for t in target:
                     targets.append(t.item())  
    
         # calculate accuracy score
@@ -269,11 +268,11 @@ class EmbeddingModel:
 
 
 class Resnet(torch.nn.Module):
-    def __init__(self, num_classes, extra_emb=None):
+    def __init__(self, num_classes):
         super().__init__()
         self.num_classes = num_classes
         self.resnet = resnet18(pretrained=True)
-        self.extra_emb = extra_emb
+        # self.embedding_layer = nn.Embedding(1, 512) # 输入应是离散整数
         # del self.resnet.fc
 
         try:
@@ -291,7 +290,7 @@ class Resnet(torch.nn.Module):
         pretrained_dict = {k: v for k, v in state_dict.items() if 'fc' not in k}
         self.resnet.load_state_dict(pretrained_dict, strict=strict)
 
-    def forward(self, x, emb=None):
+    def forward(self, x, expert=None):
         x = self.resnet.conv1(x)
         x = self.resnet.bn1(x)
         x = self.resnet.relu(x)
@@ -302,11 +301,13 @@ class Resnet(torch.nn.Module):
         x = self.resnet.layer4(x)
         x = self.resnet.avgpool(x)
         x = torch.flatten(x, 1)
-        if emb == None:
+        if expert == None:
             features = torch.flatten(x, 1)
         else:
-            # features = torch.add((torch.flatten(x, 1), torch.flatten(emb, 1)))
-            features = torch.flatten(x, 1) + torch.flatten(emb, 1)
+            expert_expanded = expert.unsqueeze(1).repeat(1, 512)
+            # fuse X_emb and E
+            features = torch.flatten(x, 1) + torch.flatten(expert_expanded, 1)
+            
         out = self.resnet.fc(features)
         out = nn.Softmax(dim=1)(out)
         return features, out

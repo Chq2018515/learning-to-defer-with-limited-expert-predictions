@@ -22,35 +22,29 @@ def main(argv):
         'lr': FLAGS.lr,
         'embs': None # 'z'或'g'，用于区分两个阶段
     }
-    # initialize base model
+
     args['embs'] = 'z'
-    # get training directory
+
     train_dir = get_train_dir(wkdir, args, 'emb_net')
-    # initialize summary writer for tensorboard
+
     writer = SummaryWriter(train_dir + 'logs/')
     z_emb_model = EmbeddingModel(args, wkdir, writer)
-    # try to load previous training runs
+
     start_epoch = z_emb_model.load_from_checkpoint(mode='latest')
     valid_acc = z_emb_model.get_test_accuracy(return_acc=True)
     # x -> z -> e
     for epoch in range(start_epoch, 5):
-        # train one epoch
         loss = z_emb_model.train_one_epoch(epoch)
-        # get validation accuracy
         valid_acc = z_emb_model.get_test_accuracy(return_acc=True)
         print(f'loss: {loss}')
-        # save logs to json
         save_to_logs(train_dir, valid_acc, loss.item())
-        # save model to checkpoint
         z_emb_model.save_to_checkpoint(epoch, loss, valid_acc)
-    # get test accuracy
     z_emb_model.get_test_accuracy()
-    
-    # (x, z?) -> g -> y
+    # (x, e) -> g -> y
     args['embs'] = 'g'
     train_dir = get_train_dir(wkdir, args, 'emb_net')
     writer = SummaryWriter(train_dir + 'logs/')
-    g_emb_model = EmbeddingModel(args, wkdir, writer, z_emb_model)
+    g_emb_model = EmbeddingModel(args, wkdir, writer, True)
     start_epoch = g_emb_model.load_from_checkpoint(mode='latest')
     valid_acc = g_emb_model.get_test_accuracy(return_acc=True)
     for epoch in range(start_epoch, 5):
